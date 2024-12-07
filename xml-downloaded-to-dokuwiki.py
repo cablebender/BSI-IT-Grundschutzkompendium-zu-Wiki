@@ -4,9 +4,20 @@ import xml.etree.ElementTree as ET
 
 def sanitize_filename(filename):
     """
-    Ersetzt problematische Zeichen im Dateinamen.
+    Ersetzt problematische Zeichen im Dateinamen, konvertiert zu Kleinbuchstaben,
+    ersetzt Umlaute und Leerzeichen.
     """
-    filename = re.sub(r"[^\w\-_\. ]", "_", filename)
+    umlaut_map = {
+        'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
+        'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss'
+    }
+    # Umlaute ersetzen
+    for umlaut, replacement in umlaut_map.items():
+        filename = filename.replace(umlaut, replacement)
+    # Leerzeichen durch Unterstriche ersetzen und alles in Kleinbuchstaben umwandeln
+    filename = re.sub(r"\s+", "_", filename).lower()
+    # Entfernt nicht alphanumerische Zeichen außer Unterstrichen, Punkten und Bindestrichen
+    filename = re.sub(r"[^\w\-_\.]", "", filename)
     return filename.strip()
 
 def extract_text_with_subtags(element):
@@ -30,7 +41,7 @@ def process_sections(sections, namespaces, depth=2):
     for section in sections:
         # Titel der Section extrahieren
         title_element = section.find("docbook:title", namespaces)
-        section_title = title_element.text if title_element is not None else "Unbenannt"
+        section_title = title_element.text if title_element is not None else "unbenannt"
         # Erstelle die passende Überschrift (Tiefe der Überschrift abhängig von `depth`)
         header = "=" * depth + f" {section_title} " + "=" * depth + "\n\n"
         content += header
@@ -68,7 +79,7 @@ def create_dokuwiki_pages_with_nested_sections(file_path, output_dir):
             try:
                 # Kapitel-Titel extrahieren
                 title_element = chapter.find("docbook:title", namespaces)
-                chapter_title = title_element.text if title_element is not None else f"Unbenannt_{chapter_idx}"
+                chapter_title = title_element.text if title_element is not None else f"unbenannt_{chapter_idx}"
                 
                 # Sicheren Verzeichnisnamen für das Kapitel erstellen
                 sanitized_chapter_name = sanitize_filename(chapter_title)
@@ -83,7 +94,7 @@ def create_dokuwiki_pages_with_nested_sections(file_path, output_dir):
                     try:
                         # Titel der Sektion extrahieren
                         section_title_element = section.find("docbook:title", namespaces)
-                        section_title = section_title_element.text if section_title_element is not None else f"Unbenannt_{section_idx}"
+                        section_title = section_title_element.text if section_title_element is not None else f"unbenannt_{section_idx}"
                         
                         # Sicheren Dateinamen für die Sektion erstellen
                         sanitized_section_title = sanitize_filename(section_title)
