@@ -1,132 +1,113 @@
-import re
 import os
+import requests
 import xml.etree.ElementTree as ET
 
-def sanitize_filename(filename):
+def download_xml(url, filename):
     """
-    Ersetzt problematische Zeichen im Dateinamen, konvertiert zu Kleinbuchstaben,
-    ersetzt Umlaute und Leerzeichen.
+    Lädt die XML-Datei von der angegebenen URL herunter und speichert sie lokal.
     """
-    umlaut_map = {
-        'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
-        'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss'
-    }
-    # Umlaute ersetzen
-    for umlaut, replacement in umlaut_map.items():
-        filename = filename.replace(umlaut, replacement)
-    # Leerzeichen durch Unterstriche ersetzen und alles in Kleinbuchstaben umwandeln
-    filename = re.sub(r"\s+", "_", filename).lower()
-    # Entfernt nicht alphanumerische Zeichen außer Unterstrichen, Punkten und Bindestrichen
-    filename = re.sub(r"[^\w\-_\.]", "", filename)
-    return filename.strip()
+    response = requests.get(url)
+    response.raise_for_status()
+    with open(filename, "wb") as file:
+        file.write(response.content)
 
-def extract_text_with_subtags(element):
+def extract_text_with_subtags(element, namespaces):
     """
-    Extrahiert Text aus einem XML-Element, einschließlich Unterelementen wie <emphasis>.
+    Extrahiert Text aus einem XML-Element, einschließlich verschachtelter Elemente wie <itemizedlist> und <listitem>.
     """
     if element is None:
         return ""
-    text = (element.text or "")
+    
+    text = (element.text or "").strip()
+
     for sub_element in element:
-        text += extract_text_with_subtags(sub_element)
+        tag = sub_element.tag.lower()
+
+        if tag.endswith("itemizedlist"):
+            for listitem in sub_element.findall(f"{{{namespaces['docbook']}}}listitem", namespaces):
+                listitem_text = extract_text_with_subtags(listitem, namespaces).strip()
+                if listitem_text:
+                    text += f"\n  * {listitem_text}"
+
+        elif tag.endswith("listitem"):
+            listitem_text = extract_text_with_subtags(sub_element, namespaces).strip()
+            if listitem_text:
+                text += f"\n{listitem_text}"
+
+        else:
+            text += extract_text_with_subtags(sub_element, namespaces).strip()
+
         if sub_element.tail:
-            text += sub_element.tail
-    return text
+            text += sub_element.tail.strip()
 
-def process_sections(sections, namespaces, depth=2):
+    return text.strip()
+
+def sanitize_filename(name):
     """
-    Verarbeitet eine Liste von <section>-Elementen und gibt sie als formatierter Text zurück.
+    Erzeugt einen sicheren Dateinamen:
+    - Konvertiert Großbuchstaben in Kleinbuchstaben
+    - Ersetzt Umlaute
+    - Ersetzt Leerzeichen durch Unterstriche
     """
-    content = ""
+    translations = str.maketrans({
+        "Ä": "Ae", "ä": "ae",
+        "Ö": "Oe", "ö": "oe",
+        "Ü": "Ue", "ü": "ue",
+        "ß": "ss",
+        " ": "_"
+    })
+    sanitized_name = name.translate(translations).lower()
+    return "".join(c for c in sanitized_name if c.isalnum() or c == "_")
+
+def process_sections(sections, chapter_dir, namespaces):
+    """
+    Verarbeitet alle Sections innerhalb eines Kapitels und erstellt die entsprechenden Dateien.
+    """
     for section in sections:
-        # Titel der Section extrahieren
-        title_element = section.find("docbook:title", namespaces)
-        section_title = title_element.text if title_element is not None else "unbenannt"
-        # Erstelle die passende Überschrift (Tiefe der Überschrift abhängig von `depth`)
-        header = "=" * depth + f" {section_title} " + "=" * depth + "\n\n"
-        content += header
-        # Inhalte der aktuellen Section hinzufügen
-        paras = section.findall("docbook:para", namespaces)
-        content += "\n\n".join([extract_text_with_subtags(para) for para in paras if para is not None]) + "\n\n"
-        # Rekursiv untergeordnete Sections verarbeiten
-        subsections = section.findall("docbook:section", namespaces)
-        if subsections:
-            content += process_sections(subsections, namespaces, depth + 1)
-    return content
+        try:
+            section_title_element = section.find(f"{{{namespaces['docbook']}}}title", namespaces)
+            section_title = section_title_element.text.strip() if section_title_element is not None else "untitled_section"
+            section_text = extract_text_with_subtags(section, namespaces)
 
-def create_dokuwiki_pages_with_nested_sections(file_path, output_dir):
-    try:
-        # XML-Namespace definieren
-        namespaces = {'docbook': 'http://docbook.org/ns/docbook'}
-        
-        # XML-Datei parsen
-        tree = ET.parse(file_path)
-        root = tree.getroot()
-        
-        # Hauptausgabe-Verzeichnis erstellen
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Suche nach <chapter>-Elementen im Namespace
-        chapters = root.findall(".//docbook:chapter", namespaces)
-        print(f"Anzahl der gefundenen <chapter>-Elemente: {len(chapters)}")
-        
-        if not chapters:
-            return "Keine passenden <chapter>-Elemente gefunden. Überprüfe den Namespace oder die XML-Dateistruktur."
-        
-        total_files_created = 0  # Zähler für erstellte Dateien
-        
-        for chapter_idx, chapter in enumerate(chapters, start=1):
-            try:
-                # Kapitel-Titel extrahieren
-                title_element = chapter.find("docbook:title", namespaces)
-                chapter_title = title_element.text if title_element is not None else f"unbenannt_{chapter_idx}"
-                
-                # Sicheren Verzeichnisnamen für das Kapitel erstellen
-                sanitized_chapter_name = sanitize_filename(chapter_title)
-                chapter_dir = os.path.join(output_dir, sanitized_chapter_name)
-                os.makedirs(chapter_dir, exist_ok=True)  # Kapitel-Verzeichnis erstellen
-                
-                print(f"[DEBUG] Erstelle Kapitel-Verzeichnis: {chapter_dir}")
-                
-                # Verarbeitung der <section>-Elemente im Kapitel
-                sections = chapter.findall("docbook:section", namespaces)
-                for section_idx, section in enumerate(sections, start=1):
-                    try:
-                        # Titel der Sektion extrahieren
-                        section_title_element = section.find("docbook:title", namespaces)
-                        section_title = section_title_element.text if section_title_element is not None else f"unbenannt_{section_idx}"
-                        
-                        # Sicheren Dateinamen für die Sektion erstellen
-                        sanitized_section_title = sanitize_filename(section_title)
-                        filename = f"{sanitized_section_title}.txt"
-                        file_path = os.path.join(chapter_dir, filename)
-                        
-                        # Inhalte der Section und ihrer Subsections sammeln
-                        content = process_sections([section], namespaces, depth=2)
-                        
-                        # Debug-Ausgabe
-                        print(f"[DEBUG] Erstelle Datei: {file_path}")
-                        
-                        # Datei speichern
-                        with open(file_path, 'w', encoding='utf-8') as page_file:
-                            page_file.write(content)
-                        
-                        total_files_created += 1
-                    except Exception as section_error:
-                        print(f"[ERROR] Fehler beim Verarbeiten der Sektion {section_idx} im Kapitel '{chapter_title}': {section_error}")
-            except Exception as chapter_error:
-                print(f"[ERROR] Fehler beim Verarbeiten des Kapitels {chapter_idx}: {chapter_error}")
-        
-        print(f"Erfolgreich erstellte Dateien: {total_files_created}")
-        return f"Dokuwiki-Seiten wurden in den Verzeichnissen unter '{output_dir}' erstellt."
-    except ET.ParseError as e:
-        return f"XML-Fehler: {e}"
-    except Exception as e:
-        return f"Allgemeiner Fehler: {e}"
+            filename = sanitize_filename(section_title) + ".txt"
+            filepath = os.path.join(chapter_dir, filename)
 
-# Verzeichnis für die Dokuwiki-Seiten
-output_dir = "dokuwiki_pages"
+            with open(filepath, "w", encoding="utf-8") as file:
+                file.write(f"====== {section_title} ======\n\n{section_text}")
+        except Exception as e:
+            print(f"[ERROR] Fehler beim Verarbeiten der Sektion '{section_title}': {e}")
 
-# Verarbeitung starten
-result = create_dokuwiki_pages_with_nested_sections("XML_Kompendium_2023.xml", output_dir)
-print(result)
+def main():
+    xml_url = "https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Grundschutz/IT-GS-Kompendium/XML_Kompendium_2023.xml?__blob=publicationFile&v=4"
+    xml_filename = "XML_Kompendium_2023.xml"
+
+    print("Lade XML-Datei herunter...")
+    download_xml(xml_url, xml_filename)
+
+    print("Validierung und Parsen der XML-Datei...")
+    tree = ET.parse(xml_filename)
+    root = tree.getroot()
+
+    namespaces = {
+        "docbook": "http://docbook.org/ns/docbook"
+    }
+
+    base_dir = "dokuwiki_pages"
+    os.makedirs(base_dir, exist_ok=True)
+
+    for chapter in root.findall(f"{{{namespaces['docbook']}}}chapter", namespaces):
+        chapter_title_element = chapter.find(f"{{{namespaces['docbook']}}}title", namespaces)
+        chapter_title = chapter_title_element.text.strip() if chapter_title_element is not None else "untitled_chapter"
+
+        chapter_dir = os.path.join(base_dir, sanitize_filename(chapter_title))
+        os.makedirs(chapter_dir, exist_ok=True)
+
+        print(f"Verarbeite Kapitel: {chapter_title}")
+
+        sections = chapter.findall(f"{{{namespaces['docbook']}}}section", namespaces)
+        process_sections(sections, chapter_dir, namespaces)
+
+    print("Verarbeitung abgeschlossen!")
+
+if __name__ == "__main__":
+    main()
