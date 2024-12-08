@@ -44,6 +44,41 @@ def extract_text_with_subtags(element, namespaces):
 
     return text
 
+# Funktion, um den Text aus <para> innerhalb eines <chapter> zu extrahieren
+def extract_para_text_from_chapter(chapter, namespaces):
+    """Extrahiert den Text aus <para> innerhalb eines <chapter>."""
+    text = ""
+    
+    # Durchsuche alle <para>-Elemente innerhalb des <chapter> und nicht innerhalb von <section>
+    for para in chapter.findall(f"{{{namespaces['doc']}}}para", namespaces):
+        if para.text:
+            text += para.text.strip() + "\n\n"  # Text aus <para> extrahieren und hinzufügen
+    
+    return text
+
+def process_chapters(xml_root, namespaces, output_dir):
+    """Verarbeitet alle <chapter>-Knoten und speichert die Texte in einer start.txt."""
+    for chapter in xml_root.findall(f"{{{namespaces['doc']}}}chapter", namespaces):
+        # Hole den Titel des Kapitels
+        title_element = chapter.find(f".//{{{namespaces['doc']}}}title", namespaces)
+        chapter_title = title_element.text.strip() if title_element is not None else "unbenanntes_kapitel"
+        
+        # Erstelle ein Verzeichnis basierend auf dem Kapitel-Titel
+        chapter_dir = os.path.join(output_dir, sanitize_filename(chapter_title))
+        os.makedirs(chapter_dir, exist_ok=True)
+
+        # Extrahieren des Texts der <para> Elemente
+        para_text = extract_para_text_from_chapter(chapter, namespaces)
+        
+        # Wenn Text gefunden wurde, schreibe ihn in die start.txt im Kapitel-Verzeichnis
+        if para_text:
+            start_file_path = os.path.join(chapter_dir, "start.txt")
+            with open(start_file_path, "w", encoding="utf-8") as f:
+                f.write(para_text)
+            print(f"[INFO] Datei erstellt: {start_file_path}")
+        else:
+            print("[INFO] Keine <para>-Elemente gefunden.")
+
 def process_chapter(chapter, base_dir, namespaces):
     """Verarbeitet ein Kapitel und erstellt die Datei 'start.txt'."""
     # Extrahieren des Titels des Kapitels (falls vorhanden)
@@ -117,6 +152,9 @@ def main():
     # Basisverzeichnis erstellen
     base_dir = "dokuwiki_pages"
     os.makedirs(base_dir, exist_ok=True)
+
+    # Verarbeite alle <chapter> Knoten und extrahiere den Inhalt von <para>
+    process_chapters(root, namespaces, base_dir)
 
     # Iteration durch Kapitel
     for chapter in root.findall(f"{{{namespaces['doc']}}}chapter", namespaces):
