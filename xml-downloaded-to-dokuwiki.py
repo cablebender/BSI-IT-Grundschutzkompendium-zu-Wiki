@@ -22,39 +22,49 @@ def download_xml_file(url, output_path):
     with open(output_path, "wb") as f:
         f.write(response.content)
 
+
 def extract_text_with_subtags(element, namespaces):
     """Extrahiert Text aus einem XML-Element, einschließlich der Inhalte von unterstützten Subtags."""
     text = ""
+
+    # Füge Text hinzu, der direkt innerhalb des Elements steht
     if element.text:
         text += element.text.strip()
 
+    # Iteriere über die Kind-Knoten
     for child in element:
+        # Verarbeitung von <emphasis>
         if child.tag == f"{{{namespaces['doc']}}}emphasis":
             if child.text:
-                text += " " + child.text.strip() + " "  # Leerzeichen einfügen
+                text += f" {child.text.strip()} "  # Text innerhalb von <emphasis> fett machen
+        # Verarbeitung von <linebreak>
         elif child.tag == f"{{{namespaces['doc']}}}linebreak":
-            text += "\n"  # Zeilenumbruch für <linebreak>
+            text += "\n"  # Zeilenumbruch hinzufügen
+        # Verarbeitung von <para>
         elif child.tag == f"{{{namespaces['doc']}}}para":
-            text += extract_text_with_subtags(child, namespaces) + "\n\n"  # Absätze
+            text += extract_text_with_subtags(child, namespaces) + "\n\n"  # Absätze behandeln
         else:
+            # Rekursive Verarbeitung anderer Tags
             text += extract_text_with_subtags(child, namespaces)
 
+        # Füge Text hinzu, der nach dem Kind-Element steht
         if child.tail:
             text += child.tail.strip()
 
+    # Rückgabe des gesamten Textes
     return text
 
-# Funktion, um den Text aus <para> innerhalb eines <chapter> zu extrahieren
+
 def extract_para_text_from_chapter(chapter, namespaces):
-    """Extrahiert den Text aus <para> innerhalb eines <chapter>."""
+    """Extrahiert den Text aus <para> innerhalb eines <chapter>, einschließlich <emphasis>-Knoten."""
     text = ""
-    
-    # Durchsuche alle <para>-Elemente innerhalb des <chapter> und nicht innerhalb von <section>
-    for para in chapter.findall(f"{{{namespaces['doc']}}}para", namespaces):
-        if para.text:
-            text += para.text.strip() + "\n\n"  # Text aus <para> extrahieren und hinzufügen
-    
+
+    # Durchsuche alle <para>-Elemente innerhalb des <chapter>, aber nicht innerhalb von <section>
+    for para in chapter.findall(f"./{{{namespaces['doc']}}}para", namespaces):
+        text += extract_text_with_subtags(para, namespaces) + "\n\n"
+
     return text
+
 
 def process_chapters(xml_root, namespaces, output_dir):
     """Verarbeitet alle <chapter>-Knoten und speichert die Texte in einer start.txt."""
@@ -79,31 +89,7 @@ def process_chapters(xml_root, namespaces, output_dir):
         else:
             print("[INFO] Keine <para>-Elemente gefunden.")
 
-def process_chapter(chapter, base_dir, namespaces):
-    """Verarbeitet ein Kapitel und erstellt die Datei 'start.txt'."""
-    # Extrahieren des Titels des Kapitels (falls vorhanden)
-    title_element = chapter.find(f".//{namespaces['doc']}title", namespaces)
-    chapter_title = title_element.text.strip() if title_element is not None else "Unbenannt"
 
-    # Erstellen des Verzeichnisses für das Kapitel
-    chapter_dir = os.path.join(base_dir, sanitize_filename(chapter_title))
-    os.makedirs(chapter_dir, exist_ok=True)
-
-    # Extrahieren des Inhalts von <para> innerhalb des <title> Elements
-    para_element = chapter.find(f".//{namespaces['doc']}para", namespaces)
-    if para_element is not None:
-        para_text = extract_text_with_subtags(para_element, namespaces).strip()
-
-        # Schreiben des Inhalts in die Datei 'start.txt' im Kapitelverzeichnis
-        start_file_path = os.path.join(chapter_dir, 'start.txt')
-        with open(start_file_path, 'w', encoding='utf-8') as f:
-            f.write(para_text)
-
-    # Verarbeite weiter alle Untersektionen, falls vorhanden
-    sections = chapter.findall(f".//{namespaces['doc']}section", namespaces)
-    for section in sections:
-        process_section(section, chapter_dir, namespaces)
-        
 def process_section(section, namespaces, depth):
     """Verarbeitet eine einzelne Sektion und erstellt den strukturierten Text."""
     text = ""
@@ -117,8 +103,7 @@ def process_section(section, namespaces, depth):
 
     # Füge den Inhalt der Sektion hinzu
     for para in section.findall(f"./{{{namespaces['doc']}}}para", namespaces):
-        if para.text:
-            text += f"{para.text.strip()}\n\n"
+        text += extract_text_with_subtags(para, namespaces) + "\n\n"
 
     # Verarbeite Listen innerhalb der Sektion
     for itemizedlist in section.findall(f"./{{{namespaces['doc']}}}itemizedlist", namespaces):
@@ -133,7 +118,6 @@ def process_section(section, namespaces, depth):
         text += process_section(subsection, namespaces, depth + 1)
 
     return text
-
 
 
 def main():
