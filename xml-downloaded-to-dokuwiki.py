@@ -22,7 +22,6 @@ def download_xml_file(url, output_path):
     with open(output_path, "wb") as f:
         f.write(response.content)
 
-
 def extract_text_with_subtags(element, namespaces):
     """Extrahiert Text aus einem XML-Element, einschließlich der Inhalte von unterstützten Subtags."""
     text = ""
@@ -35,8 +34,9 @@ def extract_text_with_subtags(element, namespaces):
     for child in element:
         # Verarbeitung von <emphasis>
         if child.tag == f"{{{namespaces['doc']}}}emphasis":
+            # Rekursive Verarbeitung von verschachtelten <emphasis> Tags
             if child.text:
-                text += f" {child.text.strip()} "  # Text innerhalb von <emphasis> fett machen
+                text += f" {extract_text_with_subtags(child, namespaces).strip()} "  # Text innerhalb von <emphasis> fett machen
         # Verarbeitung von <linebreak>
         elif child.tag == f"{{{namespaces['doc']}}}linebreak":
             text += "\n"  # Zeilenumbruch hinzufügen
@@ -53,7 +53,6 @@ def extract_text_with_subtags(element, namespaces):
 
     # Rückgabe des gesamten Textes
     return text
-
 
 def extract_para_text_from_chapter(chapter, namespaces):
     """Extrahiert den Text aus <para> innerhalb eines <chapter>, einschließlich <emphasis>-Knoten."""
