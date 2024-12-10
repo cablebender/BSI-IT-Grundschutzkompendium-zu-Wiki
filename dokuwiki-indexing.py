@@ -79,7 +79,7 @@ def replace_with_links(root_dir, csv_file):
 # Hauptablauf
 def main():
     # Phase 1: Erstellen der indexed_pages.csv
-    base_dir = 'dokuwiki_pages'
+    base_dir = 'dokuwiki/data/pages'
     output_csv = 'indexed_pages.csv'
     index_dokuwiki_pages(base_dir, output_csv)
     print(f"Index-Datei wurde erstellt: {output_csv}")
