@@ -10,7 +10,13 @@ def sanitize_filename(filename):
         "Ö": "Oe", "ö": "oe",
         "Ü": "Ue", "ü": "ue",
         "ß": "ss",
-        " ": "_"
+        " ": "_",
+        ",": "",
+        "(": "",
+        ")": "",
+        ":": "",
+        "?": "",
+        "–": "-"
     })
     return filename.translate(translations).strip("_").lower()
 
@@ -86,7 +92,10 @@ def process_chapters(xml_root, namespaces, output_dir):
                 f.write(para_text)
             print(f"[INFO] Datei erstellt: {start_file_path}")
         else:
-            print("[INFO] Keine <para>-Elemente gefunden.")
+            start_file_path = os.path.join(chapter_dir, "start.txt")
+            with open(start_file_path, "w", encoding="utf-8") as f:
+                f.write("== Inhalt ==\r\n{{indexmenu>.}}\r\nZurück zum [[:start|Start]]")
+            print(f"[INFO] Keine <para>-Elemente gefunden. Eig. start.txt erstellt: {start_file_path}")
 
 
 def process_section(section, namespaces, depth):
@@ -133,7 +142,7 @@ def main():
     namespaces = {"doc": "http://docbook.org/ns/docbook"}
 
     # Basisverzeichnis erstellen
-    base_dir = "dokuwiki_pages"
+    base_dir = "dokuwiki/data/pages"
     os.makedirs(base_dir, exist_ok=True)
 
     # Verarbeite alle <chapter> Knoten und extrahiere den Inhalt von <para>
